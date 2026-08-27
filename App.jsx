@@ -78,6 +78,36 @@ const paraNumero = (s) => {
 
 const SEM_HUB = "__sem_hub__";
 
+/* ── Semanas (segunda a domingo) ─────────────────────────────── */
+function chaveSemana(iso) {
+  const d = new Date(iso + "T00:00:00Z");
+  const desloc = (d.getUTCDay() + 6) % 7; // 0 = segunda
+  d.setUTCDate(d.getUTCDate() - desloc);
+  return d.toISOString().slice(0, 10);
+}
+
+function semanasEntre(inicio, fim) {
+  const lista = [];
+  const d = new Date(inicio + "T00:00:00Z");
+  const limite = new Date(fim + "T00:00:00Z");
+  while (d <= limite) {
+    lista.push(d.toISOString().slice(0, 10));
+    d.setUTCDate(d.getUTCDate() + 7);
+  }
+  return lista;
+}
+
+const iniciais = (nome) =>
+  nome
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p[0].toUpperCase())
+    .join("");
+
+const pct = (v) => `${Math.round(v * 100)}%`;
+
+
 /* ────────────────────────────────────────────────────────────
    Dados de exemplo — 9 semanas de contagens nos 5 hubs
    ──────────────────────────────────────────────────────────── */
@@ -562,6 +592,8 @@ function Contagem({ catalogo, contagens, registrar, excluirContagem, irParaCadas
   const [erro, setErro] = useState("");
   const [ok, setOk] = useState("");
   const [confirmando, setConfirmando] = useState(null);
+  const [expandida, setExpandida] = useState(null);
+  const [mostrar, setMostrar] = useState(14);
 
   const nomeHub = (id) => catalogo.hubs.find((h) => h.id === id)?.nome ?? "Sem hub";
 
@@ -715,34 +747,86 @@ function Contagem({ catalogo, contagens, registrar, excluirContagem, irParaCadas
           <h2 className="cartao-titulo">
             Contagens registradas <span className="contador">{ordenadas.length}</span>
           </h2>
-          <ul className="lista">
-            {ordenadas.slice(0, 14).map((c) => (
-              <li className="lista-item" key={c.id}>
-                <span className="lista-nome mono">{dataBR(c.data)}</span>
-                <span className="lista-hub">{nomeHub(c.hubId)}</span>
-                <span className="pontilhado" />
-                <span className="lista-meta">
-                  {c.responsavel} · {Object.keys(c.quantidades).length} itens
-                </span>
-                {confirmando === c.id ? (
-                  <button
-                    className="btn-mini btn-mini-perigo"
-                    onClick={() => {
-                      excluirContagem(c.id);
-                      setConfirmando(null);
-                    }}
-                  >
-                    excluir
-                  </button>
-                ) : (
-                  <button className="btn-mini" onClick={() => setConfirmando(c.id)}>
-                    remover
-                  </button>
-                )}
-              </li>
-            ))}
+          <p className="cartao-sub">Clique em uma linha para ver o que foi contado.</p>
+          <ul className="lista lista-dobravel">
+            {ordenadas.slice(0, mostrar).map((c) => {
+              const aberta = expandida === c.id;
+              const contados = Object.keys(c.quantidades).length;
+              return (
+                <li key={c.id}>
+                  <div className="dobra-cabeca">
+                    <button
+                      className="dobra-botao"
+                      onClick={() => setExpandida(aberta ? null : c.id)}
+                      aria-expanded={aberta}
+                    >
+                      <span className={`seta ${aberta ? "seta-aberta" : ""}`} aria-hidden="true">
+                        ▸
+                      </span>
+                      <span className="lista-nome mono">{dataBR(c.data)}</span>
+                      <span className="lista-hub">{nomeHub(c.hubId)}</span>
+                      <span className="pontilhado" />
+                      <span className="lista-meta">
+                        {c.responsavel} · {contados}/{catalogo.itens.length} itens
+                      </span>
+                    </button>
+                    {confirmando === c.id ? (
+                      <button
+                        className="btn-mini btn-mini-perigo"
+                        onClick={() => {
+                          excluirContagem(c.id);
+                          setConfirmando(null);
+                        }}
+                      >
+                        excluir
+                      </button>
+                    ) : (
+                      <button className="btn-mini" onClick={() => setConfirmando(c.id)}>
+                        remover
+                      </button>
+                    )}
+                  </div>
+
+                  {aberta && (
+                    <div className="dobra-corpo">
+                      {catalogo.categorias.map((cat, i) => {
+                        const doGrupo = catalogo.itens.filter((it) => it.categoriaId === cat.id);
+                        if (!doGrupo.length) return null;
+                        return (
+                          <div className="dobra-grupo" key={cat.id}>
+                            <div className="dobra-grupo-titulo" style={{ color: PALETA[i % PALETA.length] }}>
+                              {cat.nome}
+                            </div>
+                            {doGrupo.map((it) => {
+                              const q = c.quantidades[it.id];
+                              return (
+                                <div className="dobra-linha" key={it.id}>
+                                  <span className={q === undefined ? "dobra-nome-vazio" : ""}>{it.nome}</span>
+                                  <span className="pontilhado" />
+                                  {q === undefined ? (
+                                    <span className="dobra-vazio">não contado</span>
+                                  ) : (
+                                    <span className="mono dobra-valor">
+                                      {num(q)} <span className="td-unid">{it.unidade}</span>
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </li>
+              );
+            })}
           </ul>
-          {ordenadas.length > 14 && <p className="nota">Mostrando as 14 mais recentes de {ordenadas.length}.</p>}
+          {ordenadas.length > mostrar && (
+            <button className="btn btn-texto" onClick={() => setMostrar(mostrar + 20)}>
+              Ver mais ({ordenadas.length - mostrar} restantes)
+            </button>
+          )}
         </section>
       )}
     </div>
@@ -1114,6 +1198,545 @@ function Consumo({ catalogo, contagens }) {
 }
 
 /* ────────────────────────────────────────────────────────────
+   Tela: Desempenho
+
+   A regra do processo é uma contagem por hub a cada semana.
+   Duas medidas compõem a assertividade de cada colaborador:
+
+   frequência — semanas em que registrou contagem, sobre as
+                semanas em que já estava ativo
+   completude — quantos itens da ficha preencheu, na média
+
+   O índice é a média das duas. Elas ficam visíveis separadas
+   porque as falhas são diferentes: esquecer a semana ou pular
+   itens dentro da ficha.
+   ──────────────────────────────────────────────────────────── */
+function Desempenho({ catalogo, contagens }) {
+  const nomeHub = (id) => catalogo.hubs.find((h) => h.id === id)?.nome ?? "Sem hub";
+
+  const dados = useMemo(() => {
+    if (!contagens.length) return null;
+
+    const ordenadas = [...contagens].sort((a, b) => a.data.localeCompare(b.data));
+    const semanaAtual = chaveSemana(hoje());
+    const semanas = semanasEntre(chaveSemana(ordenadas[0].data), semanaAtual);
+    const totalItens = Math.max(1, catalogo.itens.length);
+
+    // ── grade hub × semana ──
+    const hubsComDados = [...new Set(ordenadas.map((c) => c.hubId || SEM_HUB))];
+    const grade = hubsComDados.map((hubId) => {
+      const doHub = ordenadas.filter((c) => (c.hubId || SEM_HUB) === hubId);
+      const primeira = chaveSemana(doHub[0].data);
+      const celulas = semanas.map((sem) => {
+        const naSemana = doHub.filter((c) => chaveSemana(c.data) === sem);
+        return {
+          semana: sem,
+          ativo: sem >= primeira,
+          contagens: naSemana,
+        };
+      });
+      return { hubId, nome: nomeHub(hubId), primeira, celulas };
+    });
+
+    const esperadas = grade.reduce((s, l) => s + l.celulas.filter((c) => c.ativo).length, 0);
+    const cobertas = grade.reduce(
+      (s, l) => s + l.celulas.filter((c) => c.ativo && c.contagens.length > 0).length,
+      0
+    );
+    const falhas = [];
+    grade.forEach((l) =>
+      l.celulas.forEach((c) => {
+        if (c.ativo && c.contagens.length === 0) falhas.push({ hub: l.nome, semana: c.semana });
+      })
+    );
+    falhas.sort((a, b) => b.semana.localeCompare(a.semana));
+
+    // ── por colaborador ──
+    const nomes = [...new Set(ordenadas.map((c) => c.responsavel).filter(Boolean))];
+    const pessoas = nomes.map((nome) => {
+      const dela = ordenadas.filter((c) => c.responsavel === nome);
+      const semanasDela = new Set(dela.map((c) => chaveSemana(c.data)));
+      const primeira = chaveSemana(dela[0].data);
+      const esperadasDela = semanas.filter((s) => s >= primeira).length;
+      const frequencia = esperadasDela > 0 ? Math.min(1, semanasDela.size / esperadasDela) : 0;
+      const completude =
+        dela.reduce((s, c) => s + Math.min(1, Object.keys(c.quantidades).length / totalItens), 0) / dela.length;
+      const fichasIncompletas = dela.filter((c) => Object.keys(c.quantidades).length < totalItens).length;
+
+      return {
+        nome,
+        contagens: dela.length,
+        hubs: new Set(dela.map((c) => c.hubId)).size,
+        semanasFeitas: semanasDela.size,
+        semanasEsperadas: esperadasDela,
+        semanasPerdidas: Math.max(0, esperadasDela - semanasDela.size),
+        frequencia,
+        completude,
+        fichasIncompletas,
+        indice: (frequencia + completude) / 2,
+        ultima: dela[dela.length - 1].data,
+      };
+    });
+    pessoas.sort((a, b) => b.indice - a.indice);
+
+    const completudeGeral =
+      ordenadas.reduce((s, c) => s + Math.min(1, Object.keys(c.quantidades).length / totalItens), 0) /
+      ordenadas.length;
+
+    return {
+      semanas,
+      grade,
+      esperadas,
+      cobertas,
+      falhas,
+      pessoas,
+      completudeGeral,
+      assertividade: esperadas > 0 ? cobertas / esperadas : 0,
+    };
+  }, [catalogo, contagens]);
+
+  if (!dados) {
+    return (
+      <Vazio
+        titulo="Ainda não há contagens"
+        texto="O desempenho compara o que foi registrado com a regra de uma contagem por hub a cada semana. Assim que as primeiras contagens entrarem, o acompanhamento aparece aqui."
+      />
+    );
+  }
+
+  const semanasVisiveis = dados.semanas.slice(-12);
+  const cor = (v) => (v >= 0.9 ? "tag-ok" : v >= 0.7 ? "tag-atencao" : "tag-critico");
+
+  return (
+    <div className="coluna">
+      <section className="resumo">
+        <div className="resumo-cel">
+          <div className="resumo-rotulo">Assertividade do processo</div>
+          <div className="resumo-valor mono">{pct(dados.assertividade)}</div>
+          <div className="resumo-unid">
+            {dados.cobertas} de {dados.esperadas} semanas cobertas
+          </div>
+        </div>
+        <div className="resumo-cel">
+          <div className="resumo-rotulo">Semanas sem contagem</div>
+          <div className="resumo-valor mono">{dados.falhas.length}</div>
+          <div className="resumo-unid">somando todos os hubs</div>
+        </div>
+        <div className="resumo-cel">
+          <div className="resumo-rotulo">Fichas preenchidas</div>
+          <div className="resumo-valor mono">{pct(dados.completudeGeral)}</div>
+          <div className="resumo-unid">dos itens, na média</div>
+        </div>
+        <div className="resumo-cel">
+          <div className="resumo-rotulo">Colaboradores ativos</div>
+          <div className="resumo-valor mono">{dados.pessoas.length}</div>
+          <div className="resumo-unid">com contagem registrada</div>
+        </div>
+      </section>
+
+      <section className="cartao">
+        <h2 className="cartao-titulo">Semana a semana</h2>
+        <p className="cartao-sub">
+          Cada quadrado é uma semana de um hub. Preenchido com as iniciais de quem contou, vazio quando a semana passou
+          em branco.
+        </p>
+        <div className="grade-rolagem">
+          <table className="grade-semanas">
+            <thead>
+              <tr>
+                <th className="grade-hub">Hub</th>
+                {semanasVisiveis.map((s) => (
+                  <th key={s} className="grade-semana mono">
+                    {dataCurta(s)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {dados.grade.map((l) => (
+                <tr key={l.hubId}>
+                  <td className="grade-hub">{l.nome}</td>
+                  {semanasVisiveis.map((s) => {
+                    const c = l.celulas.find((x) => x.semana === s);
+                    if (!c || !c.ativo) return <td key={s} className="celula celula-inativa" />;
+                    if (!c.contagens.length)
+                      return (
+                        <td key={s} className="celula celula-falha" title={`Sem contagem em ${dataBR(s)}`}>
+                          ·
+                        </td>
+                      );
+                    return (
+                      <td
+                        key={s}
+                        className="celula celula-ok"
+                        title={c.contagens.map((x) => `${x.responsavel} em ${dataBR(x.data)}`).join(" / ")}
+                      >
+                        {iniciais(c.contagens[0].responsavel)}
+                        {c.contagens.length > 1 && <sup>+{c.contagens.length - 1}</sup>}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {dados.semanas.length > 12 && (
+          <p className="nota">Mostrando as últimas 12 semanas de {dados.semanas.length}.</p>
+        )}
+      </section>
+
+      <section className="cartao">
+        <h2 className="cartao-titulo">Índice por colaborador</h2>
+        <p className="cartao-sub">Média entre a frequência semanal e o quanto da ficha foi preenchido.</p>
+        <div className="grafico" style={{ height: Math.max(180, dados.pessoas.length * 40) }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart
+              data={dados.pessoas.map((p) => ({ nome: p.nome, indice: Math.round(p.indice * 100) }))}
+              layout="vertical"
+              margin={{ top: 4, right: 30, left: 4, bottom: 4 }}
+            >
+              <CartesianGrid horizontal={false} stroke="#D6D9D1" />
+              <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11, fill: "#6B6F66" }} unit="%" />
+              <YAxis type="category" dataKey="nome" width={120} tick={{ fontSize: 11, fill: "#2A2E27" }} interval={0} />
+              <Tooltip
+                formatter={(v) => [`${v}%`, "Índice"]}
+                contentStyle={{ fontSize: 12, borderRadius: 2, border: "1px solid #C9CDC3" }}
+              />
+              <Bar dataKey="indice" radius={[0, 2, 2, 0]}>
+                {dados.pessoas.map((p, i) => (
+                  <Cell key={i} fill={p.indice >= 0.9 ? "#1F6F4A" : p.indice >= 0.7 ? "#C99A16" : "#B4491C"} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </section>
+
+      <section className="cartao">
+        <h2 className="cartao-titulo">Detalhe por colaborador</h2>
+        <div className="tabela-rolagem">
+          <table className="tabela">
+            <thead>
+              <tr>
+                <th>Colaborador</th>
+                <th className="dir">Contagens</th>
+                <th className="dir">Semanas</th>
+                <th className="dir">Frequência</th>
+                <th className="dir">Ficha preenchida</th>
+                <th className="dir">Última</th>
+                <th>Índice</th>
+              </tr>
+            </thead>
+            <tbody>
+              {dados.pessoas.map((p) => (
+                <tr key={p.nome}>
+                  <td>
+                    <div className="td-nome">{p.nome}</div>
+                    <div className="td-sub">
+                      {p.hubs} {p.hubs === 1 ? "hub" : "hubs"}
+                      {p.fichasIncompletas > 0 &&
+                        ` · ${p.fichasIncompletas} ${p.fichasIncompletas === 1 ? "ficha incompleta" : "fichas incompletas"}`}
+                    </div>
+                  </td>
+                  <td className="dir mono">{p.contagens}</td>
+                  <td className="dir mono">
+                    {p.semanasFeitas}/{p.semanasEsperadas}
+                  </td>
+                  <td className="dir mono">{pct(p.frequencia)}</td>
+                  <td className="dir mono">{pct(p.completude)}</td>
+                  <td className="dir mono">{dataCurta(p.ultima)}</td>
+                  <td>
+                    <span className={`tag ${cor(p.indice)}`}>{pct(p.indice)}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="nota">
+          Frequência é a fatia de semanas com contagem desde a primeira que a pessoa fez. Quem entrou depois não é
+          penalizado pelas semanas anteriores.
+        </p>
+      </section>
+
+      {dados.falhas.length > 0 && (
+        <section className="cartao">
+          <h2 className="cartao-titulo">
+            Semanas em branco <span className="contador">{dados.falhas.length}</span>
+          </h2>
+          <p className="cartao-sub">Hubs que passaram uma semana inteira sem nenhuma contagem registrada.</p>
+          <ul className="lista">
+            {dados.falhas.slice(0, 15).map((f, i) => (
+              <li className="lista-item" key={i}>
+                <span className="lista-nome">{f.hub}</span>
+                <span className="pontilhado" />
+                <span className="lista-meta">semana de {dataBR(f.semana)}</span>
+              </li>
+            ))}
+          </ul>
+          {dados.falhas.length > 15 && <p className="nota">Mostrando as 15 mais recentes.</p>}
+        </section>
+      )}
+    </div>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────
+   Tela: Compras
+   ──────────────────────────────────────────────────────────── */
+function Compras({ catalogo, contagens }) {
+  const [visao, setVisao] = useState("total");
+  const [criterio, setCriterio] = useState("minimo");
+  const [copiado, setCopiado] = useState(false);
+
+  const diasAlvo = criterio === "minimo" ? 0 : criterio === "d15" ? 15 : 30;
+
+  const arredondar = (v, unidade) => {
+    const inteira = ["un", "pct", "cx", "pç", "pc"].includes(unidade.toLowerCase());
+    return inteira ? Math.ceil(v) : Math.ceil(v * 10) / 10;
+  };
+
+  const porHub = useMemo(() => {
+    return catalogo.hubs
+      .map((hub) => {
+        const linhas = analisar(catalogo.itens, contagens, hub.id);
+        const itens = linhas
+          .filter((l) => l.atual !== null)
+          .map((l) => {
+            const minimo = l.item.minimo || 0;
+            const alvo = Math.max(minimo, diasAlvo ? l.consumoDia * diasAlvo : 0);
+            return {
+              item: l.item,
+              atual: l.atual,
+              minimo,
+              alvo,
+              consumoDia: l.consumoDia,
+              duracao: l.duracao,
+              comprar: arredondar(alvo - l.atual, l.item.unidade),
+              abaixoDoMinimo: l.atual <= minimo && minimo > 0,
+            };
+          })
+          .filter((x) => x.comprar > 0)
+          .sort((a, b) => Number(b.abaixoDoMinimo) - Number(a.abaixoDoMinimo) || a.item.nome.localeCompare(b.item.nome));
+        return { hub, itens };
+      })
+      .filter((h) => h.itens.length > 0);
+  }, [catalogo, contagens, diasAlvo]);
+
+  const total = useMemo(() => {
+    const mapa = new Map();
+    porHub.forEach(({ hub, itens }) =>
+      itens.forEach((x) => {
+        const atual = mapa.get(x.item.id) ?? { item: x.item, comprar: 0, hubs: [], abaixoDoMinimo: false };
+        atual.comprar += x.comprar;
+        atual.hubs.push({ nome: hub.nome, comprar: x.comprar });
+        atual.abaixoDoMinimo = atual.abaixoDoMinimo || x.abaixoDoMinimo;
+        mapa.set(x.item.id, atual);
+      })
+    );
+    return [...mapa.values()]
+      .map((x) => ({ ...x, comprar: arredondar(x.comprar, x.item.unidade) }))
+      .sort((a, b) => Number(b.abaixoDoMinimo) - Number(a.abaixoDoMinimo) || a.item.nome.localeCompare(b.item.nome));
+  }, [porHub]);
+
+  const copiar = async () => {
+    const linhas = [`Lista de compras — ${dataBR(hoje())}`, ""];
+    if (visao === "total") {
+      total.forEach((x) => linhas.push(`- ${x.item.nome}: ${num(x.comprar)} ${x.item.unidade}`));
+    } else {
+      porHub
+        .filter((h) => visao === "hubs" || h.hub.id === visao)
+        .forEach(({ hub, itens }) => {
+          linhas.push(hub.nome);
+          itens.forEach((x) => linhas.push(`- ${x.item.nome}: ${num(x.comprar)} ${x.item.unidade}`));
+          linhas.push("");
+        });
+    }
+    try {
+      await navigator.clipboard.writeText(linhas.join("\n"));
+      setCopiado(true);
+      setTimeout(() => setCopiado(false), 2500);
+    } catch {
+      setCopiado(false);
+    }
+  };
+
+  if (!contagens.length) {
+    return (
+      <Vazio
+        titulo="Nenhuma contagem registrada"
+        texto="A lista de compras nasce da última contagem de cada hub comparada ao estoque mínimo dos itens. Registre a primeira contagem e ela se monta sozinha."
+      />
+    );
+  }
+
+  const nada = porHub.length === 0;
+
+  return (
+    <div className="coluna">
+      <section className="cartao cartao-filtro">
+        <div className="filtro-rotulo">Como calcular</div>
+        <div className="chips chips-select">
+          {[
+            { id: "minimo", nome: "Repor até o mínimo" },
+            { id: "d15", nome: "Cobrir 15 dias" },
+            { id: "d30", nome: "Cobrir 30 dias" },
+          ].map((c) => (
+            <button
+              key={c.id}
+              className={`chip-btn ${criterio === c.id ? "chip-btn-ativo" : ""}`}
+              onClick={() => setCriterio(c.id)}
+            >
+              {c.nome}
+            </button>
+          ))}
+        </div>
+        <div className="filtro-rotulo">Como agrupar</div>
+        <div className="chips chips-select">
+          <button
+            className={`chip-btn ${visao === "total" ? "chip-btn-ativo" : ""}`}
+            onClick={() => setVisao("total")}
+          >
+            Total
+          </button>
+          <button
+            className={`chip-btn ${visao === "hubs" ? "chip-btn-ativo" : ""}`}
+            onClick={() => setVisao("hubs")}
+          >
+            Separado por hub
+          </button>
+          {catalogo.hubs.map((h) => (
+            <button
+              key={h.id}
+              className={`chip-btn ${visao === h.id ? "chip-btn-ativo" : ""}`}
+              onClick={() => setVisao(h.id)}
+            >
+              {h.nome}
+            </button>
+          ))}
+        </div>
+        <p className="nota">
+          {criterio === "minimo"
+            ? "Lista os itens que estão no mínimo ou abaixo dele, e a quantidade para voltar ao mínimo."
+            : `Lista o que não cobre ${diasAlvo} dias no ritmo atual de consumo. Inclui itens ainda acima do mínimo.`}
+        </p>
+      </section>
+
+      {nada ? (
+        <Vazio
+          titulo="Nada para comprar"
+          texto={
+            criterio === "minimo"
+              ? "Nenhum item está no estoque mínimo ou abaixo dele em nenhum hub."
+              : `Todos os itens cobrem ${diasAlvo} dias no ritmo atual.`
+          }
+        />
+      ) : (
+        <>
+          <section className="cartao">
+            <div className="cartao-cabecalho">
+              <h2 className="cartao-titulo">
+                {visao === "total" ? "Pedido consolidado" : "Pedido por hub"}
+                <span className="contador">
+                  {visao === "total" ? total.length : porHub.reduce((s, h) => s + h.itens.length, 0)}
+                </span>
+              </h2>
+              <button className="btn btn-contorno" onClick={copiar}>
+                {copiado ? "Copiado" : "Copiar lista"}
+              </button>
+            </div>
+
+            {visao === "total" ? (
+              <div className="tabela-rolagem">
+                <table className="tabela">
+                  <thead>
+                    <tr>
+                      <th>Item</th>
+                      <th className="dir">Comprar</th>
+                      <th>Distribuir entre</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {total.map((x) => (
+                      <tr key={x.item.id}>
+                        <td>
+                          <div className="td-nome">
+                            {x.item.nome}
+                            {x.abaixoDoMinimo && <span className="tag tag-critico selo-min">no mínimo</span>}
+                          </div>
+                          <div className="td-sub">
+                            {catalogo.categorias.find((c) => c.id === x.item.categoriaId)?.nome ?? "—"}
+                          </div>
+                        </td>
+                        <td className="dir mono compra-qtd">
+                          {num(x.comprar)} <span className="td-unid">{x.item.unidade}</span>
+                        </td>
+                        <td className="td-sub">
+                          {x.hubs.map((h) => `${h.nome}: ${num(h.comprar)}`).join(" · ")}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              porHub
+                .filter((h) => visao === "hubs" || h.hub.id === visao)
+                .map(({ hub, itens }) => (
+                  <div className="grupo" key={hub.id}>
+                    <div className="grupo-titulo" style={{ color: "#1F6F4A" }}>
+                      {hub.nome} <span className="contador">{itens.length}</span>
+                    </div>
+                    <div className="tabela-rolagem">
+                      <table className="tabela">
+                        <thead>
+                          <tr>
+                            <th>Item</th>
+                            <th className="dir">Tem</th>
+                            <th className="dir">Mínimo</th>
+                            <th className="dir">Dura</th>
+                            <th className="dir">Comprar</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {itens.map((x) => (
+                            <tr key={x.item.id}>
+                              <td>
+                                <div className="td-nome">
+                                  {x.item.nome}
+                                  {x.abaixoDoMinimo && <span className="tag tag-critico selo-min">no mínimo</span>}
+                                </div>
+                              </td>
+                              <td className="dir mono">
+                                {num(x.atual)} <span className="td-unid">{x.item.unidade}</span>
+                              </td>
+                              <td className="dir mono">{num(x.minimo)}</td>
+                              <td className="dir mono">{x.duracao === null ? "—" : `${num(x.duracao, 0)} d`}</td>
+                              <td className="dir mono compra-qtd">
+                                {num(x.comprar)} <span className="td-unid">{x.item.unidade}</span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ))
+            )}
+          </section>
+
+          <p className="nota nota-solta">
+            As quantidades saem da última contagem de cada hub. Se a contagem estiver desatualizada, a lista também
+            estará — confira a data na aba Contagem antes de fechar o pedido.
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────
    App
    ──────────────────────────────────────────────────────────── */
 export default function App() {
@@ -1223,6 +1846,8 @@ export default function App() {
     { id: "cadastro", nome: "Cadastro" },
     { id: "contagem", nome: "Contagem" },
     { id: "consumo", nome: "Consumo" },
+    { id: "compras", nome: "Compras" },
+    { id: "desempenho", nome: "Desempenho" },
   ];
 
   return (
@@ -1387,6 +2012,49 @@ export default function App() {
 .tag-critico { background: #F7E4DB; color: var(--laranja); }
 .tag-neutro { background: var(--fundo); color: var(--tinta-fraca); }
 .ordenar { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--tinta-fraca); }
+/* Contagens expansíveis */
+.lista-dobravel > li { border-bottom: 1px solid #EDEEE9; }
+.lista-dobravel > li:last-child { border-bottom: 0; }
+.dobra-cabeca { display: flex; align-items: center; gap: 10px; }
+.dobra-botao {
+  flex: 1 1 auto; display: flex; align-items: center; gap: 10px; background: transparent;
+  border: 0; cursor: pointer; padding: 9px 0; text-align: left; font-family: var(--sans);
+  font-size: 14.5px; color: var(--tinta); min-width: 0;
+}
+.dobra-botao:hover .lista-nome { color: var(--verde); }
+.seta { color: #9AA095; font-size: 11px; transition: transform 120ms ease; display: inline-block; }
+.seta-aberta { transform: rotate(90deg); }
+.dobra-corpo { padding: 4px 0 14px 22px; border-left: 1px dashed var(--borda); margin: 0 0 8px 4px; }
+.dobra-grupo { margin-bottom: 10px; }
+.dobra-grupo-titulo {
+  font-family: var(--cond); font-weight: 700; font-size: 10.5px; letter-spacing: 0.12em;
+  text-transform: uppercase; margin-bottom: 3px;
+}
+.dobra-linha { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 2px 0; }
+.dobra-valor { font-size: 13px; }
+.dobra-vazio { font-size: 11.5px; color: #A2A79A; font-family: var(--cond); text-transform: uppercase; letter-spacing: 0.06em; }
+.dobra-nome-vazio { color: #A2A79A; }
+
+/* Grade de semanas */
+.grade-rolagem { overflow-x: auto; }
+.grade-semanas { border-collapse: separate; border-spacing: 3px; font-size: 12px; }
+.grade-semanas th { font-family: var(--cond); font-size: 10px; font-weight: 600; letter-spacing: 0.06em; color: var(--tinta-fraca); text-align: center; padding: 0 0 4px; }
+.grade-semanas th.grade-hub, .grade-semanas td.grade-hub { text-align: left; white-space: nowrap; padding-right: 10px; font-size: 12.5px; color: var(--tinta); }
+.grade-semana { width: 34px; }
+.celula {
+  width: 34px; height: 30px; text-align: center; border-radius: 3px;
+  font-family: var(--mono); font-size: 11px; font-weight: 500;
+}
+.celula-ok { background: #DFEDE4; color: var(--verde); border: 1px solid #A9CBB6; }
+.celula-ok sup { font-size: 8px; }
+.celula-falha { background: #F7E4DB; color: #D89C7E; border: 1px solid #E8CBBC; }
+.celula-inativa { background: transparent; }
+
+/* Compras */
+.compra-qtd { font-size: 15px; font-weight: 600; }
+.selo-min { margin-left: 7px; vertical-align: 1px; }
+.nota-solta { padding: 0 4px; }
+
 .carregando { padding: 60px 20px; text-align: center; color: var(--tinta-fraca); font-family: var(--mono); font-size: 13px; }
 
 @media (max-width: 720px) {
@@ -1450,8 +2118,12 @@ export default function App() {
             excluirContagem={excluirContagem}
             irParaCadastro={() => setAba("cadastro")}
           />
-        ) : (
+        ) : aba === "consumo" ? (
           <Consumo catalogo={catalogo} contagens={contagens} />
+        ) : aba === "compras" ? (
+          <Compras catalogo={catalogo} contagens={contagens} />
+        ) : (
+          <Desempenho catalogo={catalogo} contagens={contagens} />
         )}
       </main>
     </div>
