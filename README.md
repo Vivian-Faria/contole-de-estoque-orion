@@ -16,46 +16,58 @@ O que faltava, e está aqui:
 - `package.json` — as bibliotecas (React, Recharts)
 - `vite.config.js` — o build que transforma tudo em HTML, CSS e JS comuns
 - `netlify.toml` — diz ao Netlify como buildar e o que publicar
-- `src/dados.js` — onde os dados ficam salvos (veja abaixo)
+- `netlify/functions/dados.mjs` — o banco de dados (veja abaixo)
 
 ## Publicando
 
 1. Suba **esta pasta inteira** para o repositório do GitHub (não só o `.jsx`).
-2. No Netlify, em **Site configuration → Build & deploy**, confirme:
-   - Build command: `npm run build`
-   - Publish directory: `dist`
-   O `netlify.toml` já define isso, então normalmente não precisa mexer.
-3. Refaça o deploy.
+2. No Netlify, refaça o deploy.
+
+É só isso. O `netlify.toml` já define o build command (`npm run build`), a pasta
+publicada (`dist`) e a pasta das funções. Não há nada para configurar na
+interface do Netlify e nenhuma variável de ambiente para criar.
 
 Para rodar na sua máquina: `npm install` e depois `npm run dev`.
 
-## Onde os dados ficam salvos
+## O banco de dados
 
-Sem configuração, o app salva no navegador de cada aparelho. Funciona, mas
-**cada celular fica com uma base separada** — o que o Buritis contar não
-aparece para você. Serve só para testar.
+Os dados ficam no **Netlify Blobs**, um armazenamento que já vem junto com o
+site. Não precisa de conta, senha nem configuração: no primeiro deploy ele
+passa a existir sozinho. A função em `netlify/functions/dados.mjs` é quem lê e
+grava, e o app conversa com ela por `/.netlify/functions/dados`.
 
-Para os cinco hubs enxergarem os mesmos dados, use o Supabase (plano gratuito):
+Isso significa que os cinco hubs enxergam a mesma base. O Rafael conta no
+Buritis pelo celular, salva, e o número aparece para você.
+
+**Como conferir:** o indicador ao lado do título, no topo do site, mostra
+bolinha verde com "atualizar" quando está gravando na nuvem. Bolinha amarela
+com "só neste aparelho" quer dizer que a função não respondeu e o app caiu para
+o armazenamento local do navegador — é o que acontece no `npm run dev`, e é
+normal ali.
+
+### Se preferir um Postgres de verdade
+
+O código também aceita Supabase, útil se você quiser consultar os dados por
+fora ou ligar em um BI depois. Nesse caso:
 
 1. Crie um projeto em [supabase.com](https://supabase.com).
 2. No **SQL Editor**, cole e rode o conteúdo de `supabase.sql`.
 3. Em **Project Settings → API**, copie a *Project URL* e a chave *anon public*.
-4. No Netlify, em **Site configuration → Environment variables**, crie:
-   - `VITE_SUPABASE_URL` = a Project URL
-   - `VITE_SUPABASE_ANON_KEY` = a chave anon
-5. Refaça o deploy (variáveis novas só valem em um build novo).
+4. No Netlify, em **Site configuration → Environment variables**, crie
+   `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY`.
+5. Refaça o deploy — variável nova só vale em um build novo.
 
-O indicador no topo do site mostra em qual modo você está: bolinha verde é
-nuvem compartilhada, bolinha amarela é só neste aparelho.
+Com essas duas variáveis presentes, o Supabase passa a ter prioridade sobre o
+Netlify Blobs. Os dados **não** migram sozinhos de um para o outro.
 
 ## Duas coisas para saber
 
-**Segurança.** A chave anon é pública e a política do SQL libera leitura e
-escrita para quem tem o link. É o suficiente para uso interno, mas qualquer
-pessoa com o endereço do site pode ver e alterar os dados. Se precisar
-restringir, o caminho é ativar autenticação no Supabase.
+**Acesso.** Não há login. Qualquer pessoa com o endereço do site pode ver e
+alterar os dados. Para uso interno costuma bastar, mas evite divulgar o link
+fora da equipe. Se um dia precisar restringir, o caminho é o Netlify Identity
+ou a autenticação do Supabase.
 
-**Contagens simultâneas.** Ao registrar, o app relê a lista do servidor antes
-de gravar, então duas pessoas contando ao mesmo tempo não apagam o registro uma
-da outra. O cadastro de itens não faz isso — evite dois gerentes mexendo no
+**Contagens simultâneas.** Ao registrar, o app relê a lista do servidor antes de
+gravar, então duas pessoas contando ao mesmo tempo não apagam o registro uma da
+outra. O cadastro de itens não faz isso — evite dois gerentes mexendo no
 catálogo no mesmo minuto.
