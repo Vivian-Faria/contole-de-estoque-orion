@@ -78,6 +78,22 @@ const paraNumero = (s) => {
 
 const SEM_HUB = "__sem_hub__";
 
+/* ── Escopo dos itens ────────────────────────────────────────
+   item.hubs guarda quais hubs usam o item. Ausente ou vazio
+   significa "todos" — mantém compatível o que foi cadastrado
+   antes deste campo existir. */
+const itemAplica = (item, hubId) =>
+  !item.hubs || item.hubs.length === 0 || hubId === SEM_HUB || item.hubs.includes(hubId);
+
+const itensDoHub = (catalogo, hubId) =>
+  hubId ? catalogo.itens.filter((i) => itemAplica(i, hubId)) : catalogo.itens;
+
+const escopoTexto = (item, hubs) => {
+  if (!item.hubs || item.hubs.length === 0 || item.hubs.length === hubs.length) return "todos os hubs";
+  if (item.hubs.length === 1) return hubs.find((h) => h.id === item.hubs[0])?.nome ?? "1 hub";
+  return `${item.hubs.length} de ${hubs.length} hubs`;
+};
+
 /* ── Semanas (segunda a domingo) ─────────────────────────────── */
 function chaveSemana(iso) {
   const d = new Date(iso + "T00:00:00Z");
@@ -125,6 +141,16 @@ function gerarExemplo() {
     { nome: "Detergente neutro", unidade: "L", cat: "c2", inicial: 20, minimo: 5, consumo: 0.9 },
     { nome: "Álcool 70%", unidade: "L", cat: "c2", inicial: 15, minimo: 4, consumo: 1.4 },
     { nome: "Pano multiuso", unidade: "un", cat: "c2", inicial: 40, minimo: 10, consumo: 0.35 },
+    // Só as Varandas têm forno; a Expedição não usa este item.
+    {
+      nome: "Limpa forno",
+      unidade: "L",
+      cat: "c2",
+      inicial: 12,
+      minimo: 3,
+      consumo: 0.6,
+      hubs: ["h-sion", "h-cidade-nova", "h-buritis", "h-castelo"],
+    },
     { nome: "Copo 300ml", unidade: "un", cat: "c3", inicial: 800, minimo: 200, consumo: 62 },
     { nome: "Guardanapo", unidade: "pct", cat: "c3", inicial: 30, minimo: 8, consumo: 1.8 },
     { nome: "Saco de lixo 100L", unidade: "un", cat: "c3", inicial: 100, minimo: 25, consumo: 4.5 },
@@ -136,6 +162,7 @@ function gerarExemplo() {
     unidade: m.unidade,
     categoriaId: m.cat,
     minimo: m.minimo,
+    hubs: m.hubs ?? HUBS_PADRAO.map((h) => h.id),
   }));
 
   // cada hub tem um porte diferente
@@ -146,7 +173,9 @@ function gerarExemplo() {
 
   HUBS_PADRAO.forEach((hub, hIdx) => {
     const saldo = {};
-    itens.forEach((it, i) => (saldo[it.id] = Math.round(molde[i].inicial * porte[hub.id])));
+    itens.forEach((it, i) => {
+      if (itemAplica(it, hub.id)) saldo[it.id] = Math.round(molde[i].inicial * porte[hub.id]);
+    });
 
     for (let semana = 0; semana <= 8; semana++) {
       const d = new Date(base);
@@ -156,6 +185,7 @@ function gerarExemplo() {
 
       itens.forEach((it, i) => {
         const m = molde[i];
+        if (!itemAplica(it, hub.id)) return;
         if (semana > 0) {
           const ruido = 0.8 + Math.random() * 0.45;
           let novo = saldo[it.id] - m.consumo * porte[hub.id] * 7 * ruido;
@@ -219,7 +249,8 @@ function analisar(itens, contagens, hubId) {
   const hubsPresentes = [...new Set(relevantes.map((c) => c.hubId || SEM_HUB))];
 
   return itens.map((item) => {
-    const porHub = hubsPresentes.map((h) => {
+    const hubsDoItem = hubsPresentes.filter((h) => itemAplica(item, h));
+    const porHub = hubsDoItem.map((h) => {
       const doHub = relevantes
         .filter((c) => (c.hubId || SEM_HUB) === h)
         .sort((a, b) => a.data.localeCompare(b.data));
@@ -339,11 +370,25 @@ function ListaEditavel({ titulo, sub, lista, placeholder, onAdd, onRemove, cor }
    ──────────────────────────────────────────────────────────── */
 function Cadastro({ catalogo, salvarCatalogo, carregarExemplo, temContagens, limparTudo }) {
   const [form, setForm] = useState({ nome: "", unidade: "un", categoriaId: "", minimo: "" });
+  const [hubsItem, setHubsItem] = useState(catalogo.hubs.map((h) => h.id));
+  const [editandoEscopo, setEditandoEscopo] = useState(null);
   const [novaCategoria, setNovaCategoria] = useState("");
   const [erro, setErro] = useState("");
   const [confirmando, setConfirmando] = useState(null);
 
   const cats = catalogo.categorias;
+
+  const alternarHubDoItem = (itemId, hubId) => {
+    salvarCatalogo({
+      ...catalogo,
+      itens: catalogo.itens.map((it) => {
+        if (it.id !== itemId) return it;
+        const atuais = it.hubs && it.hubs.length ? it.hubs : catalogo.hubs.map((h) => h.id);
+        const novos = atuais.includes(hubId) ? atuais.filter((h) => h !== hubId) : [...atuais, hubId];
+        return { ...it, hubs: novos };
+      }),
+    });
+  };
 
   const addCategoria = () => {
     const nome = novaCategoria.trim();
@@ -363,6 +408,7 @@ function Cadastro({ catalogo, salvarCatalogo, carregarExemplo, temContagens, lim
     if (!form.categoriaId) return setErro("Escolha uma categoria para o item.");
     if (catalogo.itens.some((i) => i.nome.toLowerCase() === nome.toLowerCase()))
       return setErro("Já existe um item com esse nome.");
+    if (!hubsItem.length) return setErro("Escolha pelo menos um hub que usa este item.");
 
     salvarCatalogo({
       ...catalogo,
@@ -374,6 +420,7 @@ function Cadastro({ catalogo, salvarCatalogo, carregarExemplo, temContagens, lim
           unidade: form.unidade.trim() || "un",
           categoriaId: form.categoriaId,
           minimo: paraNumero(form.minimo) ?? 0,
+          hubs: [...hubsItem],
         },
       ],
     });
@@ -501,6 +548,37 @@ function Cadastro({ catalogo, salvarCatalogo, carregarExemplo, temContagens, lim
             />
           </label>
         </div>
+        <div className="escopo-form">
+          <div className="rotulo" style={{ marginBottom: 6 }}>
+            Usado em quais hubs
+          </div>
+          <div className="chips chips-select" style={{ marginTop: 0 }}>
+            <button
+              className={`chip-btn ${hubsItem.length === catalogo.hubs.length ? "chip-btn-ativo" : ""}`}
+              onClick={() => setHubsItem(catalogo.hubs.map((h) => h.id))}
+            >
+              Todos
+            </button>
+            {catalogo.hubs.map((h) => {
+              const ativo = hubsItem.includes(h.id);
+              return (
+                <button
+                  key={h.id}
+                  className={`chip-btn ${ativo ? "chip-btn-ativo" : ""}`}
+                  onClick={() =>
+                    setHubsItem(ativo ? hubsItem.filter((x) => x !== h.id) : [...hubsItem, h.id])
+                  }
+                >
+                  {h.nome}
+                </button>
+              );
+            })}
+          </div>
+          <p className="nota" style={{ marginTop: 6 }}>
+            O item só aparece na ficha de contagem e na lista de compras dos hubs marcados.
+          </p>
+        </div>
+
         <button className="btn btn-primario" onClick={addItem} disabled={!cats.length}>
           Adicionar item
         </button>
@@ -543,12 +621,20 @@ function Cadastro({ catalogo, salvarCatalogo, carregarExemplo, temContagens, lim
                 </div>
                 <ul className="lista">
                   {doGrupo.map((it) => (
-                    <li className="lista-item" key={it.id}>
+                    <li className="lista-item lista-item-escopo" key={it.id}>
                       <span className="lista-nome">{it.nome}</span>
                       <span className="pontilhado" />
                       <span className="lista-meta">
                         {it.unidade} · mín {num(it.minimo)}
                       </span>
+                      <button
+                        className={`selo-escopo ${
+                          it.hubs && it.hubs.length && it.hubs.length < catalogo.hubs.length ? "selo-escopo-parcial" : ""
+                        }`}
+                        onClick={() => setEditandoEscopo(editandoEscopo === it.id ? null : it.id)}
+                      >
+                        {escopoTexto(it, catalogo.hubs)}
+                      </button>
                       {confirmando === it.id ? (
                         <button
                           className="btn-mini btn-mini-perigo"
@@ -563,6 +649,31 @@ function Cadastro({ catalogo, salvarCatalogo, carregarExemplo, temContagens, lim
                         <button className="btn-mini" onClick={() => setConfirmando(it.id)}>
                           remover
                         </button>
+                      )}
+                      {editandoEscopo === it.id && (
+                        <div className="escopo-editor">
+                          <div className="escopo-editor-titulo">Quais hubs usam este item</div>
+                          <div className="chips chips-select" style={{ marginTop: 0 }}>
+                            {catalogo.hubs.map((h) => {
+                              const marcados = it.hubs && it.hubs.length ? it.hubs : catalogo.hubs.map((x) => x.id);
+                              const ativo = marcados.includes(h.id);
+                              return (
+                                <button
+                                  key={h.id}
+                                  className={`chip-btn ${ativo ? "chip-btn-ativo" : ""}`}
+                                  onClick={() => alternarHubDoItem(it.id, h.id)}
+                                >
+                                  {h.nome}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          {it.hubs && it.hubs.length === 0 && (
+                            <p className="nota" style={{ color: "#B4491C" }}>
+                              Sem nenhum hub marcado, o item volta a valer para todos.
+                            </p>
+                          )}
+                        </div>
                       )}
                     </li>
                   ))}
@@ -599,7 +710,9 @@ function Contagem({ catalogo, contagens, registrar, excluirContagem, irParaCadas
 
   const ordenadas = useMemo(() => [...contagens].sort((a, b) => b.data.localeCompare(a.data)), [contagens]);
   const ultimaDoHub = ordenadas.find((c) => c.hubId === hubId);
-  const preenchidos = catalogo.itens.filter((i) => paraNumero(valores[i.id]) !== null).length;
+  const itensVisiveis = useMemo(() => (hubId ? itensDoHub(catalogo, hubId) : catalogo.itens), [catalogo, hubId]);
+  const foraDoHub = catalogo.itens.length - itensVisiveis.length;
+  const preenchidos = itensVisiveis.filter((i) => paraNumero(valores[i.id]) !== null).length;
 
   const jaExiste = contagens.some((c) => c.hubId === hubId && c.data === data);
 
@@ -610,7 +723,7 @@ function Contagem({ catalogo, contagens, registrar, excluirContagem, irParaCadas
     if (preenchidos === 0) return setErro("Preencha a quantidade de pelo menos um item.");
 
     const quantidades = {};
-    catalogo.itens.forEach((i) => {
+    itensVisiveis.forEach((i) => {
       const v = paraNumero(valores[i.id]);
       if (v !== null) quantidades[i.id] = v;
     });
@@ -652,7 +765,7 @@ function Contagem({ catalogo, contagens, registrar, excluirContagem, irParaCadas
           <div className="ficha-selo">Ficha de contagem</div>
           <div className="ficha-progresso">
             <span className="ficha-progresso-num">{preenchidos}</span>
-            <span className="ficha-progresso-den">/ {catalogo.itens.length} itens</span>
+            <span className="ficha-progresso-den">/ {itensVisiveis.length} itens</span>
           </div>
         </div>
 
@@ -698,8 +811,15 @@ function Contagem({ catalogo, contagens, registrar, excluirContagem, irParaCadas
           hubId && <p className="nota">Primeira contagem deste hub.</p>
         )}
 
+        {hubId && foraDoHub > 0 && (
+          <p className="nota">
+            {foraDoHub} {foraDoHub === 1 ? "item do catálogo não é usado" : "itens do catálogo não são usados"} neste
+            hub e {foraDoHub === 1 ? "foi ocultado" : "foram ocultados"} da ficha.
+          </p>
+        )}
+
         {catalogo.categorias.map((c, i) => {
-          const doGrupo = catalogo.itens.filter((it) => it.categoriaId === c.id);
+          const doGrupo = itensVisiveis.filter((it) => it.categoriaId === c.id);
           if (!doGrupo.length) return null;
           return (
             <div className="grupo" key={c.id}>
@@ -767,7 +887,7 @@ function Contagem({ catalogo, contagens, registrar, excluirContagem, irParaCadas
                       <span className="lista-hub">{nomeHub(c.hubId)}</span>
                       <span className="pontilhado" />
                       <span className="lista-meta">
-                        {c.responsavel} · {contados}/{catalogo.itens.length} itens
+                        {c.responsavel} · {contados}/{itensDoHub(catalogo, c.hubId).length} itens
                       </span>
                     </button>
                     {confirmando === c.id ? (
@@ -790,7 +910,7 @@ function Contagem({ catalogo, contagens, registrar, excluirContagem, irParaCadas
                   {aberta && (
                     <div className="dobra-corpo">
                       {catalogo.categorias.map((cat, i) => {
-                        const doGrupo = catalogo.itens.filter((it) => it.categoriaId === cat.id);
+                        const doGrupo = itensDoHub(catalogo, c.hubId).filter((it) => it.categoriaId === cat.id);
                         if (!doGrupo.length) return null;
                         return (
                           <div className="dobra-grupo" key={cat.id}>
@@ -1220,7 +1340,11 @@ function Desempenho({ catalogo, contagens }) {
     const ordenadas = [...contagens].sort((a, b) => a.data.localeCompare(b.data));
     const semanaAtual = chaveSemana(hoje());
     const semanas = semanasEntre(chaveSemana(ordenadas[0].data), semanaAtual);
-    const totalItens = Math.max(1, catalogo.itens.length);
+
+    /* A ficha de cada hub tem o seu próprio tamanho: quem conta um hub
+       com menos itens não pode aparecer como ficha incompleta. */
+    const esperadosNoHub = (hubId) => Math.max(1, itensDoHub(catalogo, hubId).length);
+    const completudeDe = (c) => Math.min(1, Object.keys(c.quantidades).length / esperadosNoHub(c.hubId));
 
     // ── grade hub × semana ──
     const hubsComDados = [...new Set(ordenadas.map((c) => c.hubId || SEM_HUB))];
@@ -1259,9 +1383,10 @@ function Desempenho({ catalogo, contagens }) {
       const primeira = chaveSemana(dela[0].data);
       const esperadasDela = semanas.filter((s) => s >= primeira).length;
       const frequencia = esperadasDela > 0 ? Math.min(1, semanasDela.size / esperadasDela) : 0;
-      const completude =
-        dela.reduce((s, c) => s + Math.min(1, Object.keys(c.quantidades).length / totalItens), 0) / dela.length;
-      const fichasIncompletas = dela.filter((c) => Object.keys(c.quantidades).length < totalItens).length;
+      const completude = dela.reduce((s, c) => s + completudeDe(c), 0) / dela.length;
+      const fichasIncompletas = dela.filter(
+        (c) => Object.keys(c.quantidades).length < esperadosNoHub(c.hubId)
+      ).length;
 
       return {
         nome,
@@ -1279,9 +1404,7 @@ function Desempenho({ catalogo, contagens }) {
     });
     pessoas.sort((a, b) => b.indice - a.indice);
 
-    const completudeGeral =
-      ordenadas.reduce((s, c) => s + Math.min(1, Object.keys(c.quantidades).length / totalItens), 0) /
-      ordenadas.length;
+    const completudeGeral = ordenadas.reduce((s, c) => s + completudeDe(c), 0) / ordenadas.length;
 
     return {
       semanas,
@@ -1500,7 +1623,7 @@ function Compras({ catalogo, contagens }) {
   const porHub = useMemo(() => {
     return catalogo.hubs
       .map((hub) => {
-        const linhas = analisar(catalogo.itens, contagens, hub.id);
+        const linhas = analisar(itensDoHub(catalogo, hub.id), contagens, hub.id);
         const itens = linhas
           .filter((l) => l.atual !== null)
           .map((l) => {
@@ -2049,6 +2172,22 @@ export default function App() {
 .celula-ok sup { font-size: 8px; }
 .celula-falha { background: #F7E4DB; color: #D89C7E; border: 1px solid #E8CBBC; }
 .celula-inativa { background: transparent; }
+
+/* Escopo por hub */
+.escopo-form { border-top: 1px dashed var(--borda); padding-top: 12px; margin-bottom: 14px; }
+.lista-item-escopo { flex-wrap: wrap; }
+.selo-escopo {
+  background: var(--fundo); border: 1px solid var(--borda); border-radius: 999px;
+  font-family: var(--cond); font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--tinta-fraca); padding: 2px 9px; cursor: pointer; white-space: nowrap;
+}
+.selo-escopo:hover { border-color: var(--verde); color: var(--verde); }
+.selo-escopo-parcial { background: #F6EDD3; border-color: #DFCB93; color: var(--ambar); }
+.escopo-editor { flex: 1 0 100%; padding: 10px 0 12px 2px; }
+.escopo-editor-titulo {
+  font-family: var(--cond); font-size: 10.5px; font-weight: 600; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--tinta-fraca); margin-bottom: 7px;
+}
 
 /* Compras */
 .compra-qtd { font-size: 15px; font-weight: 600; }
