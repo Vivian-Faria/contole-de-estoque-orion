@@ -371,23 +371,56 @@ function ListaEditavel({ titulo, sub, lista, placeholder, onAdd, onRemove, cor }
 function Cadastro({ catalogo, salvarCatalogo, carregarExemplo, temContagens, limparTudo }) {
   const [form, setForm] = useState({ nome: "", unidade: "un", categoriaId: "", minimo: "" });
   const [hubsItem, setHubsItem] = useState(catalogo.hubs.map((h) => h.id));
-  const [editandoEscopo, setEditandoEscopo] = useState(null);
+  const [edicao, setEdicao] = useState(null);
   const [novaCategoria, setNovaCategoria] = useState("");
   const [erro, setErro] = useState("");
   const [confirmando, setConfirmando] = useState(null);
 
   const cats = catalogo.categorias;
 
-  const alternarHubDoItem = (itemId, hubId) => {
+  const abrirEdicao = (it) => {
+    setErro("");
+    setEdicao({
+      id: it.id,
+      nome: it.nome,
+      unidade: it.unidade,
+      minimo: String(it.minimo ?? 0).replace(".", ","),
+      categoriaId: it.categoriaId,
+      hubs: it.hubs && it.hubs.length ? [...it.hubs] : catalogo.hubs.map((h) => h.id),
+    });
+  };
+
+  const alternarHubDaEdicao = (hubId) =>
+    setEdicao((e) => ({
+      ...e,
+      hubs: e.hubs.includes(hubId) ? e.hubs.filter((h) => h !== hubId) : [...e.hubs, hubId],
+    }));
+
+  const salvarEdicao = () => {
+    const nome = edicao.nome.trim();
+    if (!nome) return setErro("O item precisa de um nome.");
+    if (catalogo.itens.some((i) => i.id !== edicao.id && i.nome.toLowerCase() === nome.toLowerCase()))
+      return setErro("Já existe outro item com esse nome.");
+    if (!edicao.categoriaId) return setErro("Escolha uma categoria para o item.");
+    if (!edicao.hubs.length) return setErro("Marque pelo menos um hub que usa este item.");
+
     salvarCatalogo({
       ...catalogo,
-      itens: catalogo.itens.map((it) => {
-        if (it.id !== itemId) return it;
-        const atuais = it.hubs && it.hubs.length ? it.hubs : catalogo.hubs.map((h) => h.id);
-        const novos = atuais.includes(hubId) ? atuais.filter((h) => h !== hubId) : [...atuais, hubId];
-        return { ...it, hubs: novos };
-      }),
+      itens: catalogo.itens.map((it) =>
+        it.id === edicao.id
+          ? {
+              ...it,
+              nome,
+              unidade: edicao.unidade.trim() || "un",
+              minimo: paraNumero(edicao.minimo) ?? 0,
+              categoriaId: edicao.categoriaId,
+              hubs: [...edicao.hubs],
+            }
+          : it
+      ),
     });
+    setEdicao(null);
+    setErro("");
   };
 
   const addCategoria = () => {
@@ -631,9 +664,15 @@ function Cadastro({ catalogo, salvarCatalogo, carregarExemplo, temContagens, lim
                         className={`selo-escopo ${
                           it.hubs && it.hubs.length && it.hubs.length < catalogo.hubs.length ? "selo-escopo-parcial" : ""
                         }`}
-                        onClick={() => setEditandoEscopo(editandoEscopo === it.id ? null : it.id)}
+                        onClick={() => (edicao?.id === it.id ? setEdicao(null) : abrirEdicao(it))}
                       >
                         {escopoTexto(it, catalogo.hubs)}
+                      </button>
+                      <button
+                        className={`btn-mini ${edicao?.id === it.id ? "btn-mini-ativo" : ""}`}
+                        onClick={() => (edicao?.id === it.id ? setEdicao(null) : abrirEdicao(it))}
+                      >
+                        {edicao?.id === it.id ? "fechar" : "editar"}
                       </button>
                       {confirmando === it.id ? (
                         <button
@@ -650,29 +689,82 @@ function Cadastro({ catalogo, salvarCatalogo, carregarExemplo, temContagens, lim
                           remover
                         </button>
                       )}
-                      {editandoEscopo === it.id && (
+
+                      {edicao?.id === it.id && (
                         <div className="escopo-editor">
+                          <div className="grade-form grade-edicao">
+                            <label className="rotulo">
+                              Item
+                              <input
+                                className="campo"
+                                value={edicao.nome}
+                                onChange={(e) => setEdicao({ ...edicao, nome: e.target.value })}
+                                onKeyDown={(e) => e.key === "Enter" && salvarEdicao()}
+                              />
+                            </label>
+                            <label className="rotulo">
+                              Categoria
+                              <select
+                                className="campo"
+                                value={edicao.categoriaId}
+                                onChange={(e) => setEdicao({ ...edicao, categoriaId: e.target.value })}
+                              >
+                                {cats.map((c) => (
+                                  <option key={c.id} value={c.id}>
+                                    {c.nome}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="rotulo">
+                              Unidade
+                              <input
+                                className="campo"
+                                value={edicao.unidade}
+                                onChange={(e) => setEdicao({ ...edicao, unidade: e.target.value })}
+                              />
+                            </label>
+                            <label className="rotulo">
+                              Mínimo
+                              <input
+                                className="campo campo-num"
+                                inputMode="decimal"
+                                value={edicao.minimo}
+                                onChange={(e) => setEdicao({ ...edicao, minimo: e.target.value })}
+                                onKeyDown={(e) => e.key === "Enter" && salvarEdicao()}
+                              />
+                            </label>
+                          </div>
+
                           <div className="escopo-editor-titulo">Quais hubs usam este item</div>
                           <div className="chips chips-select" style={{ marginTop: 0 }}>
-                            {catalogo.hubs.map((h) => {
-                              const marcados = it.hubs && it.hubs.length ? it.hubs : catalogo.hubs.map((x) => x.id);
-                              const ativo = marcados.includes(h.id);
-                              return (
-                                <button
-                                  key={h.id}
-                                  className={`chip-btn ${ativo ? "chip-btn-ativo" : ""}`}
-                                  onClick={() => alternarHubDoItem(it.id, h.id)}
-                                >
-                                  {h.nome}
-                                </button>
-                              );
-                            })}
+                            <button
+                              className={`chip-btn ${
+                                edicao.hubs.length === catalogo.hubs.length ? "chip-btn-ativo" : ""
+                              }`}
+                              onClick={() => setEdicao({ ...edicao, hubs: catalogo.hubs.map((h) => h.id) })}
+                            >
+                              Todos
+                            </button>
+                            {catalogo.hubs.map((h) => (
+                              <button
+                                key={h.id}
+                                className={`chip-btn ${edicao.hubs.includes(h.id) ? "chip-btn-ativo" : ""}`}
+                                onClick={() => alternarHubDaEdicao(h.id)}
+                              >
+                                {h.nome}
+                              </button>
+                            ))}
                           </div>
-                          {it.hubs && it.hubs.length === 0 && (
-                            <p className="nota" style={{ color: "#B4491C" }}>
-                              Sem nenhum hub marcado, o item volta a valer para todos.
-                            </p>
-                          )}
+
+                          <div className="edicao-acoes">
+                            <button className="btn btn-primario" onClick={salvarEdicao}>
+                              Salvar alterações
+                            </button>
+                            <button className="btn btn-texto" onClick={() => setEdicao(null)}>
+                              Cancelar
+                            </button>
+                          </div>
                         </div>
                       )}
                     </li>
@@ -2183,7 +2275,10 @@ export default function App() {
 }
 .selo-escopo:hover { border-color: var(--verde); color: var(--verde); }
 .selo-escopo-parcial { background: #F6EDD3; border-color: #DFCB93; color: var(--ambar); }
-.escopo-editor { flex: 1 0 100%; padding: 10px 0 12px 2px; }
+.escopo-editor { flex: 1 0 100%; padding: 12px 0 14px 2px; border-top: 1px dashed var(--borda); margin-top: 4px; }
+.grade-edicao { grid-template-columns: 2fr 1.2fr 0.9fr 0.7fr; margin-bottom: 12px; }
+.edicao-acoes { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+.btn-mini-ativo { color: var(--verde); }
 .escopo-editor-titulo {
   font-family: var(--cond); font-size: 10.5px; font-weight: 600; letter-spacing: 0.1em;
   text-transform: uppercase; color: var(--tinta-fraca); margin-bottom: 7px;
@@ -2197,7 +2292,7 @@ export default function App() {
 .carregando { padding: 60px 20px; text-align: center; color: var(--tinta-fraca); font-family: var(--mono); font-size: 13px; }
 
 @media (max-width: 720px) {
-  .grade-form, .grade-3 { grid-template-columns: 1fr 1fr; }
+  .grade-form, .grade-3, .grade-edicao { grid-template-columns: 1fr 1fr; }
   .resumo { grid-template-columns: 1fr 1fr; }
   .resumo-cel:nth-child(2n) { border-right: 0; }
   .resumo-cel:nth-child(-n+2) { border-bottom: 1px solid var(--borda); }
