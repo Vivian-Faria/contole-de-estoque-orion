@@ -787,7 +787,7 @@ function Cadastro({ catalogo, salvarCatalogo, carregarExemplo, temContagens, lim
 /* ────────────────────────────────────────────────────────────
    Tela: Contagem
    ──────────────────────────────────────────────────────────── */
-function Contagem({ catalogo, contagens, registrar, excluirContagem, irParaCadastro }) {
+function Contagem({ catalogo, contagens, registrar, atualizarContagem, excluirContagem, irParaCadastro }) {
   const [hubId, setHubId] = useState(catalogo.hubs[0]?.id ?? "");
   const [data, setData] = useState(hoje());
   const [responsavel, setResponsavel] = useState("");
@@ -797,6 +797,7 @@ function Contagem({ catalogo, contagens, registrar, excluirContagem, irParaCadas
   const [confirmando, setConfirmando] = useState(null);
   const [expandida, setExpandida] = useState(null);
   const [mostrar, setMostrar] = useState(14);
+  const [edicao, setEdicao] = useState(null);
 
   const nomeHub = (id) => catalogo.hubs.find((h) => h.id === id)?.nome ?? "Sem hub";
 
@@ -831,6 +832,54 @@ function Contagem({ catalogo, contagens, registrar, excluirContagem, irParaCadas
     setValores({});
     setErro("");
     setOk(`${nomeHub(hubId)} · ${dataBR(data)} registrado com ${preenchidos} ${preenchidos === 1 ? "item" : "itens"}.`);
+  };
+
+  const abrirEdicao = (c) => {
+    const valoresIniciais = {};
+    itensDoHub(catalogo, c.hubId).forEach((it) => {
+      const q = c.quantidades[it.id];
+      valoresIniciais[it.id] = q === undefined ? "" : String(q).replace(".", ",");
+    });
+    setErro("");
+    setOk("");
+    setExpandida(c.id);
+    setEdicao({
+      id: c.id,
+      data: c.data,
+      responsavel: c.responsavel,
+      porQuem: "",
+      valores: valoresIniciais,
+    });
+  };
+
+  const salvarEdicao = (original) => {
+    if (!edicao.data) return setErro("A contagem precisa de uma data.");
+    if (!edicao.responsavel) return setErro("A contagem precisa de um responsável.");
+    if (!edicao.porQuem) return setErro("Selecione quem está fazendo a correção.");
+
+    const quantidades = {};
+    itensDoHub(catalogo, original.hubId).forEach((it) => {
+      const v = paraNumero(edicao.valores[it.id]);
+      if (v !== null) quantidades[it.id] = v;
+    });
+    if (!Object.keys(quantidades).length)
+      return setErro("A contagem ficaria vazia. Preencha pelo menos um item ou remova o registro.");
+
+    const conflito = contagens.some(
+      (c) => c.id !== original.id && c.hubId === original.hubId && c.data === edicao.data
+    );
+    if (conflito)
+      return setErro(`Já existe outra contagem de ${nomeHub(original.hubId)} em ${dataBR(edicao.data)}.`);
+
+    atualizarContagem(original.id, {
+      data: edicao.data,
+      responsavel: edicao.responsavel,
+      quantidades,
+      editadoEm: new Date().toISOString(),
+      editadoPor: edicao.porQuem,
+    });
+    setEdicao(null);
+    setOk(`Contagem de ${nomeHub(original.hubId)} em ${dataBR(edicao.data)} corrigida.`);
   };
 
   if (!catalogo.itens.length) {
@@ -962,7 +1011,8 @@ function Contagem({ catalogo, contagens, registrar, excluirContagem, irParaCadas
           <p className="cartao-sub">Clique em uma linha para ver o que foi contado.</p>
           <ul className="lista lista-dobravel">
             {ordenadas.slice(0, mostrar).map((c) => {
-              const aberta = expandida === c.id;
+              const emEdicao = edicao?.id === c.id;
+              const aberta = expandida === c.id || emEdicao;
               const contados = Object.keys(c.quantidades).length;
               return (
                 <li key={c.id}>
@@ -981,6 +1031,17 @@ function Contagem({ catalogo, contagens, registrar, excluirContagem, irParaCadas
                       <span className="lista-meta">
                         {c.responsavel} · {contados}/{itensDoHub(catalogo, c.hubId).length} itens
                       </span>
+                      {c.editadoEm && (
+                        <span className="selo-editado" title={`Corrigida por ${c.editadoPor} em ${dataBR(c.editadoEm.slice(0, 10))}`}>
+                          corrigida
+                        </span>
+                      )}
+                    </button>
+                    <button
+                      className={`btn-mini ${emEdicao ? "btn-mini-ativo" : ""}`}
+                      onClick={() => (emEdicao ? setEdicao(null) : abrirEdicao(c))}
+                    >
+                      {emEdicao ? "fechar" : "editar"}
                     </button>
                     {confirmando === c.id ? (
                       <button
@@ -1001,6 +1062,53 @@ function Contagem({ catalogo, contagens, registrar, excluirContagem, irParaCadas
 
                   {aberta && (
                     <div className="dobra-corpo">
+                      {emEdicao && (
+                        <div className="grade-form grade-3 grade-edicao-contagem">
+                          <label className="rotulo">
+                            Data da contagem
+                            <input
+                              className="campo"
+                              type="date"
+                              max={hoje()}
+                              value={edicao.data}
+                              onChange={(e) => setEdicao({ ...edicao, data: e.target.value })}
+                            />
+                          </label>
+                          <label className="rotulo">
+                            Quem contou
+                            <select
+                              className="campo"
+                              value={edicao.responsavel}
+                              onChange={(e) => setEdicao({ ...edicao, responsavel: e.target.value })}
+                            >
+                              {!catalogo.pessoas.some((p) => p.nome === edicao.responsavel) && (
+                                <option value={edicao.responsavel}>{edicao.responsavel}</option>
+                              )}
+                              {catalogo.pessoas.map((p) => (
+                                <option key={p.id} value={p.nome}>
+                                  {p.nome}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="rotulo">
+                            Quem está corrigindo
+                            <select
+                              className="campo"
+                              value={edicao.porQuem}
+                              onChange={(e) => setEdicao({ ...edicao, porQuem: e.target.value })}
+                            >
+                              <option value="">Selecione</option>
+                              {catalogo.pessoas.map((p) => (
+                                <option key={p.id} value={p.nome}>
+                                  {p.nome}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        </div>
+                      )}
+
                       {catalogo.categorias.map((cat, i) => {
                         const doGrupo = itensDoHub(catalogo, c.hubId).filter((it) => it.categoriaId === cat.id);
                         if (!doGrupo.length) return null;
@@ -1011,6 +1119,34 @@ function Contagem({ catalogo, contagens, registrar, excluirContagem, irParaCadas
                             </div>
                             {doGrupo.map((it) => {
                               const q = c.quantidades[it.id];
+                              if (emEdicao) {
+                                const atual = edicao.valores[it.id] ?? "";
+                                const mudou = (paraNumero(atual) ?? null) !== (q === undefined ? null : q);
+                                return (
+                                  <div className="dobra-linha dobra-linha-edicao" key={it.id}>
+                                    <span>{it.nome}</span>
+                                    <span className="pontilhado" />
+                                    {mudou && (
+                                      <span className="dobra-antes">
+                                        {q === undefined ? "vazio" : num(q)} →
+                                      </span>
+                                    )}
+                                    <input
+                                      className={`campo campo-qtd ${mudou ? "campo-mudou" : ""}`}
+                                      inputMode="decimal"
+                                      placeholder="—"
+                                      value={atual}
+                                      onChange={(e) =>
+                                        setEdicao({
+                                          ...edicao,
+                                          valores: { ...edicao.valores, [it.id]: e.target.value },
+                                        })
+                                      }
+                                    />
+                                    <span className="unidade">{it.unidade}</span>
+                                  </div>
+                                );
+                              }
                               return (
                                 <div className="dobra-linha" key={it.id}>
                                   <span className={q === undefined ? "dobra-nome-vazio" : ""}>{it.nome}</span>
@@ -1028,6 +1164,26 @@ function Contagem({ catalogo, contagens, registrar, excluirContagem, irParaCadas
                           </div>
                         );
                       })}
+
+                      {emEdicao ? (
+                        <div className="edicao-acoes">
+                          <button className="btn btn-primario" onClick={() => salvarEdicao(c)}>
+                            Salvar correção
+                          </button>
+                          <button className="btn btn-texto" onClick={() => setEdicao(null)}>
+                            Cancelar
+                          </button>
+                          <span className="dica-edicao">
+                            Deixe um campo em branco para marcar o item como não contado.
+                          </span>
+                        </div>
+                      ) : (
+                        c.editadoEm && (
+                          <p className="nota nota-auditoria">
+                            Corrigida por {c.editadoPor} em {dataBR(c.editadoEm.slice(0, 10))}.
+                          </p>
+                        )
+                      )}
                     </div>
                   )}
                 </li>
@@ -2024,6 +2180,21 @@ export default function App() {
     }
   };
 
+  const atualizarContagem = async (id, mudancas) => {
+    const aplicar = (c) => (c.id === id ? { ...c, ...mudancas } : c);
+    setContagens((lista) => lista.map(aplicar));
+    setSincronizando(true);
+    try {
+      const atualizadas = await atualizar(K_CONTAGENS, (lista) => lista.map(aplicar));
+      setContagens(atualizadas);
+      setErroDados("");
+    } catch (e) {
+      setErroDados("A alteração não foi salva. Confira a conexão e tente de novo.");
+    } finally {
+      setSincronizando(false);
+    }
+  };
+
   const excluirContagem = async (id) => {
     setContagens((c) => c.filter((x) => x.id !== id));
     try {
@@ -2249,6 +2420,17 @@ export default function App() {
 .dobra-valor { font-size: 13px; }
 .dobra-vazio { font-size: 11.5px; color: #A2A79A; font-family: var(--cond); text-transform: uppercase; letter-spacing: 0.06em; }
 .dobra-nome-vazio { color: #A2A79A; }
+.dobra-linha-edicao { padding: 3px 0; }
+.dobra-antes { font-family: var(--mono); font-size: 11px; color: var(--laranja); white-space: nowrap; }
+.campo-mudou { border-color: var(--laranja); background: #FDF6F2; }
+.grade-edicao-contagem { margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px dashed var(--borda); }
+.selo-editado {
+  font-family: var(--cond); font-size: 9.5px; font-weight: 600; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--ambar); background: #F6EDD3;
+  border-radius: 2px; padding: 1px 6px; white-space: nowrap;
+}
+.dica-edicao { font-size: 12px; color: var(--tinta-fraca); }
+.nota-auditoria { font-style: italic; }
 
 /* Grade de semanas */
 .grade-rolagem { overflow-x: auto; }
@@ -2349,6 +2531,7 @@ export default function App() {
             catalogo={catalogo}
             contagens={contagens}
             registrar={registrar}
+            atualizarContagem={atualizarContagem}
             excluirContagem={excluirContagem}
             irParaCadastro={() => setAba("cadastro")}
           />
